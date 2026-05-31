@@ -30,6 +30,20 @@ local function resetCookingTime(ingredRef)
     end
 end
 
+-- True if this food carries cook progress that must survive a cell unload / re-activation.
+-- referenceActivated fires both on a fresh placement AND when the cell reloads, so this is
+-- how we tell "player just put food on the grill" (no progress -> announce + start) from
+-- "we walked back into the cell" (has progress -> resume silently, never reset). Checks
+-- cookedAmount/grillState too, not just lastCookUpdated, since the timer can be cleared on
+-- the way out while the progress persists.
+local function hasCookProgress(ingredRef)
+    return ingredRef.supportsLuaData and ingredRef.data ~= nil and (
+        ingredRef.data.lastCookUpdated ~= nil
+        or ingredRef.data.cookedAmount ~= nil
+        or ingredRef.data.grillState ~= nil
+    )
+end
+
 
 
 local function addGrillPatina(campfire,interval)
@@ -186,14 +200,14 @@ local function updateGrillFoodHeatSource(ingredReference)
         if ingredReference.tempData.ashfallHeatSource ~= campfire then
             logger:debug("Setting grill food heat source to %s", campfire)
             ingredReference.tempData.ashfallHeatSource = campfire
-            if ingredReference.data.lastCookUpdated == nil then
-                --Fresh placement (or relit after a reset): announce and start the timer.
-                startCookingIngredient(ingredReference)
-            else
+            if hasCookProgress(ingredReference) then
                 --The heat source link was lost and is now back -- e.g. the cell unloaded
                 --while we were away and cleared tempData. The food was already cooking, so
-                --catch up the elapsed time silently instead of "restarting" it.
+                --resume/catch up silently instead of "restarting" it.
                 applyCatchUpCooking(ingredReference, campfire)
+            else
+                --Genuinely fresh placement: announce and start the cook timer.
+                startCookingIngredient(ingredReference)
             end
         end
     else
@@ -291,13 +305,20 @@ end
 applyCatchUpCooking = function(ingredReference, campfire)
     --Synchronous: campfire.data.isLit reflects the decayed fuel once this returns.
     event.trigger("Ashfall:ForceUpdateFuelConsumer", { reference = campfire })
-    if campfire.data.isLit then
-        grillFoodItem(ingredReference)
-    else
+    if not campfire.data.isLit then
         --Fire went out while we were away; drop the heat-source link and the stale cook
         --timer so a relight starts cooking cleanly (cookedAmount so far is preserved).
         ingredReference.tempData.ashfallHeatSource = nil
         resetCookingTime(ingredReference)
+    elseif ingredReference.data.lastCookUpdated == nil then
+        --Has progress but no timestamp to integrate from (it was cleared on the way out).
+        --Resume silently from the saved cookedAmount -- don't route through grillFoodItem's
+        --"lastCookUpdated == nil -> startCookingIngredient" path, which would re-announce.
+        ingredReference.data.lastCookUpdated = tes3.getSimulationTimestamp()
+    else
+        --Fire survived the whole gap (fuel only drops while lit), so integrate the elapsed
+        --cook time in one step.
+        grillFoodItem(ingredReference)
     end
 end
 
@@ -396,7 +417,11 @@ local function doPlaced(ingredReference)
         --     end
         -- end
     elseif foodConfig.getGrillValues(ingredReference.object) then
-        if ingredReference.supportsLuaData then
+        --referenceActivated also fires when the cell reloads, so only treat this as a fresh
+        --placement (reset the timer, allow the "begins to cook" announce) when the food has
+        --no existing cook progress. Otherwise it's a re-activation -- leave the data intact
+        --and let updateGrillFoodHeatSource resume/catch up silently.
+        if ingredReference.supportsLuaData and not hasCookProgress(ingredReference) then
             --Reset grill time for meat and veges
             ingredReference.data.preventBurning = nil
             resetCookingTime(ingredReference)
