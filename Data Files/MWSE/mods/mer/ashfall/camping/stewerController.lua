@@ -106,10 +106,23 @@ local function updateStewers(e)
     ReferenceController.iterateReferences("stewer", doUpdate)
 end
 
- event.register("simulate", function(e)
-    updateStewers(e)
-    updateBuffs(e)
- end)
+-- Stew cooking and stew-buff countdown are delta-integrated (by game-hours since their
+-- last update), so they don't need the per-frame `simulate` event. Run them on a slower
+-- timer matching the sibling boiler/fuel cadence (~0.25s). Still a simulate-type timer, so
+-- it pauses in menus exactly like the old `simulate` registration did.
+event.register("loaded", function()
+    timer.start{
+        type = timer.simulate,
+        duration = common.helper.getUpdateIntervalInSeconds(),
+        iterations = -1,
+        persist = false,
+        callback = function()
+            local e = { timestamp = tes3.getSimulationTimestamp() }
+            updateStewers(e)
+            updateBuffs(e)
+        end,
+    }
+end)
 
 
 local function eatStew(e)
@@ -125,6 +138,9 @@ local function eatStew(e)
     for foodType, data in pairs(stewBuffs) do
         local nutrition = foodConfig.getNutritionForFoodType(foodType) * data.stewNutrition
         nutritionLevel = nutritionLevel + ( nutrition * ( e.data.stewLevels[foodType] or 0 ) / 100 )
+        -- NOTE: intentionally matches upstream. Rewriting this to `maxNutritionLevel + nutrition`
+        -- changes foodRatio and thus how much a stew satiates -- a balance change, not a safe
+        -- correctness fix -- so it's left exactly as the shipped mod has it.
         maxNutritionLevel = nutritionLevel + nutrition
     end
     local foodRatio = nutritionLevel / maxNutritionLevel

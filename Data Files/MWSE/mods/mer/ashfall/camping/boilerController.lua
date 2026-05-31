@@ -20,6 +20,7 @@ ReferenceController.registerReferenceController{
 }
 
 local function addUtensilPatina(campfire,interval)
+    if not patinaController.enabled then return end
     if campfire.sceneNode and campfire.data.utensilId then
         logger:trace("Attempting to add Patina to %s", campfire.data.utensilId)
         local node = campfire.sceneNode:getObjectByName("ATTACH_HANGER")
@@ -64,7 +65,10 @@ local function doUpdate(boilerRef)
                 liquidContainer.waterType = nil
             end
         end
-        tes3ui.refreshTooltip()
+        --Only refresh the tooltip if the player is actually looking at this boiler.
+        if tes3.getPlayerTarget() == liquidContainer.reference then
+            tes3ui.refreshTooltip()
+        end
     else
         logger:trace("BOILER no filled pot, setting waterUpdated to nil")
         liquidContainer.data.lastWaterUpdated = nil

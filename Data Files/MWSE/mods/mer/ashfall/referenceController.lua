@@ -3,6 +3,9 @@ local staticConfigs = require('mer.ashfall.config.staticConfigs')
 local this = {}
 
 ---@class Ashfall.ReferenceController
+---@field references table<tes3reference, true>
+---@field requirements fun(self: Ashfall.ReferenceController, ref: tes3reference): any
+---@field requirementsAreStatic boolean? When true, iteration skips the per-ref requirements() re-check and uses ref:isValid() instead (membership is invariant per ref).
 local ReferenceController = {
     new = function(self, o)
         o = o or {}   -- create object if user does not provide one
@@ -25,9 +28,20 @@ local ReferenceController = {
     end,
 
     iterate = function(self, callback)
-        for ref, _ in pairs(self.references) do
-            --check requirements in case it's no longer valid
-            if self:requirements(ref) then
+        local static = self.requirementsAreStatic
+        for ref in pairs(self.references) do
+            --For a static controller a ref's membership can never change, so skip the
+            --(potentially expensive, e.g. getObjectByName/isActivator) requirements()
+            --re-check and just confirm the ref still points to live memory.
+            --objectInvalidated already prunes deleted refs; ref:isValid() is the cheap
+            --crash-safe backstop. Dynamic controllers re-run requirements() as before.
+            local valid
+            if static then
+                valid = ref:isValid()
+            else
+                valid = self:requirements(ref)
+            end
+            if valid then
                 if ref.sceneNode then
                     callback(ref)
                 end
@@ -37,14 +51,12 @@ local ReferenceController = {
             end
         end
     end,
-
-    references = nil,
-    requirements = nil
 }
 
 ---@type table<string, Ashfall.ReferenceController>
 this.controllers = {
     campfire = ReferenceController:new{
+        requirementsAreStatic = true, --SWITCH_FIRE node is structural
         requirements = function(_, ref)
             return ref.sceneNode
                 and ref.sceneNode:getObjectByName("SWITCH_FIRE")
@@ -52,6 +64,7 @@ this.controllers = {
     },
 
     weakFire = ReferenceController:new{
+        requirementsAreStatic = true, --SWITCH_CANDLELIGHT node is structural
         requirements = function(_, ref)
             return ref.sceneNode
                 and ref.sceneNode:getObjectByName("SWITCH_CANDLELIGHT")
@@ -75,28 +88,33 @@ this.controllers = {
     },
 
     hazard = ReferenceController:new{
+        requirementsAreStatic = true, --keyed on object id, which never changes
         requirements = function(_, ref)
             return staticConfigs.heatSourceValues[ref.object.id:lower()]
         end
     },
 
     waterContainer = ReferenceController:new{
+        requirementsAreStatic = true, --keyed on object id, which never changes
         requirements = function(_, ref)
             return staticConfigs.bottleList[ref.object.id:lower()]
         end
     },
 
     utensil = ReferenceController:new{
+        requirementsAreStatic = true, --POT_WATER node is structural
         requirements = function(_, ref)
             return ref.sceneNode and ref.sceneNode:getObjectByName("POT_WATER")
         end
     },
     kettle = ReferenceController:new{
+        requirementsAreStatic = true, --SWITCH_KETTLE_STEAM node is structural
         requirements = function(_, ref)
             return ref.sceneNode and ref.sceneNode:getObjectByName("SWITCH_KETTLE_STEAM")
         end
     },
     fryingPan = ReferenceController:new{
+        requirementsAreStatic = true, --keyed on object id, which never changes
         requirements = function(_, ref)
             local grillConfig = staticConfigs.grills[ref.object.id:lower()]
             return grillConfig and grillConfig.fryingPan
@@ -120,6 +138,7 @@ this.controllers = {
         end
     },
     waterFilter = ReferenceController:new{
+        requirementsAreStatic = true, --FILTER_WATER node is structural
         requirements = function(_, ref)
             local isWaterFilter = ref.sceneNode
                 and ref.sceneNode:getObjectByName("FILTER_WATER")
@@ -156,26 +175,39 @@ local function onObjectInvalidated(e)
 end
 event.register("objectInvalidated", onObjectInvalidated)
 
----@param e { id: string, requirements: fun(self: Ashfall.ReferenceController, ref: tes3reference): boolean }
+---@param e { id: string, requirements: fun(self: Ashfall.ReferenceController, ref: tes3reference): boolean, requirementsAreStatic: boolean? }
 function this.registerReferenceController(e)
     assert(e.id, "No id provided")
     assert(e.requirements, "No reference requirements provided")
     assert(this.controllers[e.id] == nil, "Reference controller already registered")
-    this.controllers[e.id] =  ReferenceController:new{ requirements = e.requirements }
+    this.controllers[e.id] = ReferenceController:new{
+        requirements = e.requirements,
+        requirementsAreStatic = e.requirementsAreStatic,
+    }
     return this.controllers[e.id]
 end
 event.register("Ashfall:RegisterReferenceController", this.registerReferenceController)
 
 function this.iterateReferences(refType, callback)
-    for ref, _ in pairs(this.controllers[refType].references) do
-        --check requirements in case it's no longer valid
-        if this.controllers[refType]:requirements(ref) then
+    local controller = this.controllers[refType]
+    local references = controller.references --[[@as table<tes3reference, true>]]
+    local static = controller.requirementsAreStatic
+    for ref in pairs(references) do
+        --Static controllers skip the requirements() re-check and use the cheap
+        --ref:isValid() liveness guard (see ReferenceController.requirementsAreStatic).
+        local valid
+        if static then
+            valid = ref:isValid()
+        else
+            valid = controller:requirements(ref)
+        end
+        if valid then
             if ref.sceneNode then
                 callback(ref)
             end
         else
             --no longer valid, remove from ref list
-            this.controllers[refType].references[ref] = nil
+            references[ref] = nil
         end
     end
 end

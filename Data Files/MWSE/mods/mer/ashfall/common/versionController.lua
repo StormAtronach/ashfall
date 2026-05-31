@@ -1,6 +1,5 @@
 
 local https = require "ssl.https"
-local common = require("mer.ashfall.common.common")
 local config = require("mer.ashfall.config").config
 
 local this = {}
@@ -76,22 +75,33 @@ showConfirmDisableNotifications = function()
     tes3ui.showMessageMenu{ message = message, buttons = buttons, cancels = true, cancelCallback = showUpdateMessageBox }
 end
 
+local hasChecked = false
 function this.checkForUpdates()
-    if config.checkForUpdates then
-        currentVersion = "v" .. this.getVersion()
-        local body, code, headers, status = https.request(
-            'http://api.github.com/repos/jhaakma/ashfall/tags')
+    if not config.checkForUpdates then return end
+    if hasChecked then return end
+    hasChecked = true
+    -- The update check is a *synchronous* HTTPS request (ssl.https has no async form). Running
+    -- it inline here (during `initialized`) blocked startup until it returned or timed out.
+    -- Defer it to a one-shot real-time timer so launch isn't gated on the network; it still
+    -- runs once per session, just off the critical path.
+    timer.start{
+        type = timer.real,
+        duration = 5,
+        iterations = 1,
+        callback = function()
+            currentVersion = "v" .. this.getVersion()
+            local body, code = https.request(
+                'http://api.github.com/repos/jhaakma/ashfall/tags')
 
-        if code == 200 then
-            local body = json.decode(body)
-            latestVersion = body and body[1] and body[1].name
-            if latestVersion ~= currentVersion then
-                timer.frame.delayOneFrame(function()
-                    showUpdateMessageBox()
-                end)
+            if code == 200 then
+                local tags = json.decode(body)
+                latestVersion = tags and tags[1] and tags[1].name
+                if latestVersion and latestVersion ~= currentVersion then
+                    timer.frame.delayOneFrame(showUpdateMessageBox)
+                end
             end
-        end
-    end
+        end,
+    }
 end
 
 return this

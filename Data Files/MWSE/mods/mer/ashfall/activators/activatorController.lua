@@ -25,7 +25,7 @@ ActivatorController.subTypes = {}
 local safeCurrentRef
 setmetatable(ActivatorController, {
     ---when setting currentRef, create a safeObjectHandle
-    __setindex = function(self, key, val)
+    __newindex = function(self, key, val)
         if key == "currentRef" then
             if val then
                 safeCurrentRef = tes3.makeSafeObjectHandle(val)
@@ -85,12 +85,36 @@ function ActivatorController.getCurrentType()
     end
 end
 
-function ActivatorController.getRefActivator(reference)
-    for _, activator in pairs(ActivatorController.list) do
+-- Reverse index: lowercased object id -> activator list-key, memoizing id/pattern matches
+-- (the common case) so matching is O(1) instead of scanning every activator (each of which
+-- lowercases the id, allocating a string). Pure-`requirements` activators and non-matches are
+-- NOT cached (they depend on ref state), so they keep scanning. The id->activator mapping is
+-- session-stable, so no invalidation is needed.
+local activatorIdByObjectId = {}
+
+---@param reference tes3reference
+---@return string|nil activatorId Key into ActivatorController.list, or nil if none match
+local function findActivatorId(reference)
+    local objId = reference.baseObject.id:lower()
+    local cached = activatorIdByObjectId[objId]
+    if cached then return cached end
+    for activatorId, activator in pairs(ActivatorController.list) do
         if activator:isActivator(reference) then
-            logger:trace("Activator: %s", activator.type)
-            return activator
+            -- isActivator self-promotes pattern hits into activator.ids; cache only id-based
+            -- matches (stable), not ref-state-dependent `requirements` matches.
+            if activator.ids and activator.ids[objId] then
+                activatorIdByObjectId[objId] = activatorId
+            end
+            return activatorId
         end
+    end
+    return nil
+end
+
+function ActivatorController.getRefActivator(reference)
+    local activatorId = findActivatorId(reference)
+    if activatorId then
+        return ActivatorController.list[activatorId]
     end
 end
 
@@ -233,12 +257,7 @@ local function onIndicator(e)
         local targetRef = result.reference
         ActivatorController.currentRef = targetRef
         ActivatorController.parentNode = result.object.parent
-        for activatorId, activator in pairs(ActivatorController.list) do
-            if activator:isActivator(targetRef) then
-                ActivatorController.current = activatorId
-                break
-            end
-        end
+        ActivatorController.current = findActivatorId(targetRef)
     else
         --Special case for looking at water
         local cell =  tes3.player.cell

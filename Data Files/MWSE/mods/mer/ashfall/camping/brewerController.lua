@@ -58,7 +58,7 @@ local function updateBuffs(e)
     end
 
 end
-event.register("simulate", updateBuffs)
+-- updateBuffs runs together with updateBrewers on a slower timer (see bottom of file).
 
 ---@class Ashfall.onDrinkTea.params
 ---@field teaType string
@@ -139,6 +139,7 @@ local function updateBrewers(e)
     local function doUpdate(brewerRef_)
         ---@type Ashfall.LiquidContainer
         local liquidContainer = LiquidContainer.createFromReference(brewerRef_)
+        if not liquidContainer then return end
         liquidContainer.data.lastBrewUpdated = liquidContainer.data.lastBrewUpdated or e.timestamp
         local difference = e.timestamp - liquidContainer.data.lastBrewUpdated
 
@@ -168,4 +169,20 @@ local function updateBrewers(e)
     ReferenceController.iterateReferences("brewer", doUpdate)
 end
 
- event.register("simulate", updateBrewers)
+-- Tea brewing and tea-buff countdown are delta-integrated (by game-hours since their last
+-- update), so they don't need the per-frame `simulate` event. Run them on a slower timer
+-- matching the sibling boiler/fuel cadence (~0.25s). Still a simulate-type timer, so it
+-- pauses in menus exactly like the old `simulate` registrations did.
+event.register("loaded", function()
+    timer.start{
+        type = timer.simulate,
+        duration = common.helper.getUpdateIntervalInSeconds(),
+        iterations = -1,
+        persist = false,
+        callback = function()
+            local e = { timestamp = tes3.getSimulationTimestamp() }
+            updateBuffs(e)
+            updateBrewers(e)
+        end,
+    }
+end)
