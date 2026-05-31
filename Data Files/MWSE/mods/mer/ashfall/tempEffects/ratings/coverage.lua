@@ -57,11 +57,6 @@ local generalRatings = {
 }
 
 
-local function getProtectionForItem(item)
-
-
-end
-
 --[[
     Returns a list of bodyParts and the protection
 ]]

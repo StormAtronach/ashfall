@@ -3,6 +3,9 @@ local config = require("mer.ashfall.config").config
 local logger = common.createLogger("patinaController")
 local LiquidContainer = require("mer.ashfall.liquid.LiquidContainer")
 local this = {}
+--Patina mechanic is currently disabled. Flip to true to re-enable; callers gate on this to
+--skip the per-tick scene-graph work entirely.
+this.enabled = false
 local metalPatterns = {
     "iron", "steel", "metal", "pewter", "copper"
 }
@@ -71,8 +74,7 @@ end
 
 
 function this.addPatina(rootNode, amount)
-    --Patina mechanics disabled
-    do return end
+    if not this.enabled then return end
 
     --logger:trace("+++++ADD PATINA")
     if not rootNode then return end
@@ -101,7 +103,7 @@ function this.addPatina(rootNode, amount)
 end
 
 local function doPatinaDrop(e)
-    do return end
+    if not this.enabled then return end
 
     if e.reference and e.reference.sceneNode and e.reference.data then
         local data = e.reference.data

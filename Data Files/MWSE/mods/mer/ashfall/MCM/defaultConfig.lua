@@ -32,7 +32,6 @@ local mcmConfig = {
     enableEnvironmentSickness = true,
     enableSkinning = true,
     enableBranchPlacement = true,
-    enableCooking = false,--depreciated
     bushcraftingEnabled = true,
 
     showTemp = true,
