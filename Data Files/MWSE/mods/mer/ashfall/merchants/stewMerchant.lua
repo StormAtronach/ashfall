@@ -144,7 +144,8 @@ end
 
 
 local function onMenuDialogActivated()
-    if config.enableThirst ~= true then return end
+    --Stew restores both hunger and thirst, so offer it if either need is enabled.
+    if not (config.enableHunger or config.enableThirst) then return end
 
     logger:debug("Dialog menu entered")
     local menuDialog = merchantMenu.getDialogMenu()

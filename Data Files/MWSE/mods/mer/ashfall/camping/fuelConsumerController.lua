@@ -8,7 +8,12 @@ local ReferenceController = require("mer.ashfall.referenceController")
 local fuelDecay = 1.0
 local fuelDecayRainEffect = 1.4
 local fuelDecayThunderEffect = 1.6
-local FUEL_UPDATE_INTERVAL = 0.001
+-- Fuel decay is delta-integrated (fuelLevel -= (timestamp - lastFuelUpdated) * rate),
+-- so the decay outcome is independent of how often this runs. At 0.001s the simulate
+-- timer fired ~16x/frame (~990 calls/sec) and the game-hour delta rounded to 0 most
+-- of those times anyway — pure waste (top GC/CPU cost in profiling). 0.25s matches the
+-- sibling sheltered-campfire timer and is well within extinguish-latency tolerance.
+local FUEL_UPDATE_INTERVAL = 0.25
 
 ReferenceController.registerReferenceController{
     id = "fuelConsumer",
@@ -101,5 +106,15 @@ end)
 event.register("referenceActivated", function(e)
     if ReferenceController.isReference("fuelConsumer", e.reference) then
         updateShelteredCampfire(e.reference)
+    end
+end)
+
+-- On-demand fuel decay for a single campfire. Used by grill cooking catch-up on cell
+-- re-entry: event.trigger is synchronous, so the caller can read the refreshed
+-- isLit/fuelLevel as soon as this returns. Delta-integrated and idempotent, so forcing an
+-- extra update is harmless (the next timed update sees a ~0 difference).
+event.register("Ashfall:ForceUpdateFuelConsumer", function(e)
+    if e.reference and e.reference.data and e.reference.data.fuelLevel then
+        updateFuelConsumer(e.reference)
     end
 end)

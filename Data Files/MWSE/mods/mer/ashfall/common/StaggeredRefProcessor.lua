@@ -37,7 +37,7 @@ function StaggeredRefProcessor.new(config)
     end)
 
     event.register("load", function()
-        self.timeHandle = nil
+        self.timerHandle = nil
     end)
 
     return self
