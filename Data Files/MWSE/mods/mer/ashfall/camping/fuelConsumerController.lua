@@ -103,3 +103,13 @@ event.register("referenceActivated", function(e)
         updateShelteredCampfire(e.reference)
     end
 end)
+
+-- On-demand fuel decay for a single campfire. Used by grill cooking catch-up on cell
+-- re-entry: event.trigger is synchronous, so the caller can read the refreshed
+-- isLit/fuelLevel as soon as this returns. Delta-integrated and idempotent, so forcing an
+-- extra update is harmless (the next timed update sees a ~0 difference).
+event.register("Ashfall:ForceUpdateFuelConsumer", function(e)
+    if e.reference and e.reference.data and e.reference.data.fuelLevel then
+        updateFuelConsumer(e.reference)
+    end
+end)

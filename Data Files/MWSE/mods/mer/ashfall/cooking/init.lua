@@ -154,15 +154,19 @@ local function startCookingIngredient(ingredient, timestamp)
     timestamp = timestamp or tes3.getSimulationTimestamp()
     ingredient.data.lastCookUpdated = timestamp
 
-    local difference = timestamp - ingredient.data.lastCookUpdated
-    --only show message if enough time has passed
-    local justChangedCell = difference > 0.01
-    if not justChangedCell then
-        local message = string.format("%s begins to cook.", ingredient.object.name)
-        tes3.messageBox{ message = message }
-    end
+    -- Callers only reach here on a genuine fresh placement (they gate on
+    -- lastCookUpdated == nil), so always announce. Re-entering a cell with food already
+    -- cooking is handled by applyCatchUpCooking and stays silent.
+    -- (Previously this computed `difference` AFTER overwriting lastCookUpdated above, so it
+    -- was always 0, `justChangedCell` was always false, and the message fired every time --
+    -- including on every cell re-entry. That was the spurious "begins to cook" popup.)
+    local message = string.format("%s begins to cook.", ingredient.object.name)
+    tes3.messageBox{ message = message }
     tes3.playSound{ sound = "potion fail", pitch = 0.8, reference = ingredient }
 end
+
+-- Forward declaration; defined after grillFoodItem (which it calls).
+local applyCatchUpCooking
 
 
 ---@param ingredReference tes3reference
@@ -182,7 +186,15 @@ local function updateGrillFoodHeatSource(ingredReference)
         if ingredReference.tempData.ashfallHeatSource ~= campfire then
             logger:debug("Setting grill food heat source to %s", campfire)
             ingredReference.tempData.ashfallHeatSource = campfire
-            startCookingIngredient(ingredReference)
+            if ingredReference.data.lastCookUpdated == nil then
+                --Fresh placement (or relit after a reset): announce and start the timer.
+                startCookingIngredient(ingredReference)
+            else
+                --The heat source link was lost and is now back -- e.g. the cell unloaded
+                --while we were away and cleared tempData. The food was already cooking, so
+                --catch up the elapsed time silently instead of "restarting" it.
+                applyCatchUpCooking(ingredReference, campfire)
+            end
         end
     else
         --clear heat source
@@ -258,6 +270,33 @@ local function grillFoodItem(ingredReference)
         end
     else
         --reset grill time if not placed on a campfire
+        resetCookingTime(ingredReference)
+    end
+end
+
+--[[
+    Cook food for the time that elapsed while its cell was unloaded (e.g. you left to
+    another cell and came back). lastCookUpdated/cookedAmount persist in ref.data, but the
+    survival stack can't process an unloaded cell, so the gap has to be reconciled on return.
+
+    The campfire's fuel is decayed FIRST (synchronously, via the fuelConsumer controller) so
+    that a fire which ran out while we were away doesn't cook anything. If it's still lit
+    afterwards then -- because fuel only decreases while lit -- it was lit for the whole gap,
+    so grillFoodItem can integrate the entire elapsed time in one step.
+
+    Known simplifications (accepted): the catch-up cooks at the fire's post-decay heat, and a
+    fire that died partway through the gap credits none of it (rather than the portion before
+    it went out). Food left unattended on a still-lit (e.g. static) fire can therefore burn.
+]]
+applyCatchUpCooking = function(ingredReference, campfire)
+    --Synchronous: campfire.data.isLit reflects the decayed fuel once this returns.
+    event.trigger("Ashfall:ForceUpdateFuelConsumer", { reference = campfire })
+    if campfire.data.isLit then
+        grillFoodItem(ingredReference)
+    else
+        --Fire went out while we were away; drop the heat-source link and the stale cook
+        --timer so a relight starts cooking cleanly (cookedAmount so far is preserved).
+        ingredReference.tempData.ashfallHeatSource = nil
         resetCookingTime(ingredReference)
     end
 end
