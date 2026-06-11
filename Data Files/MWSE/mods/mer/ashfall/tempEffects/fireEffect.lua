@@ -90,8 +90,11 @@ temperatureController.registerExternalHeatSource("fireTemp")
 --Check if player has Magic ready stance
 local warmingHands
 local triggerWarmMessage
+--Sampled once per tick in calculateFireEffect so checkWarmHands (called per nearby
+--fire across the three iteration callbacks) doesn't re-read the engine property each time.
+local castReadyThisFrame
 local function checkWarmHands()
-    if tes3.mobilePlayer.castReady then
+    if castReadyThisFrame then
         if not warmingHands then
             warmingHands = true
             triggerWarmMessage = true
@@ -183,6 +186,7 @@ function this.calculateFireEffect()
     totalHeat = 0
     closeEnough = nil
     common.data.nearCampfire = false
+    castReadyThisFrame = tes3.mobilePlayer.castReady
 
     ReferenceController.iterateReferences("fuelConsumer", doCampfireHeat)
     ReferenceController.iterateReferences("flame", doFlameHeat)

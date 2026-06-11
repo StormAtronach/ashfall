@@ -13,9 +13,16 @@ local ReferenceController = require("mer.ashfall.referenceController")
 
 ReferenceController.registerReferenceController{
     id = "boiler",
+    --Allocation-free validation. Equivalent to building a LiquidContainer and
+    --checking waterAmount, but without the per-tick table churn: matches the same
+    --gating as LiquidContainer.createFromReference/new (supportsLuaData + a
+    --recognised vessel in bottleList + water present).
     requirements = function(_, ref)
-        local liquidContainer = LiquidContainer.createFromReference(ref)
-        return liquidContainer and liquidContainer.waterAmount > 0
+        if not ref.supportsLuaData then return false end
+        local data = ref.data
+        if not data or (data.waterAmount or 0) <= 0 then return false end
+        local id = data.utensilId or ref.baseObject.id
+        return common.staticConfigs.bottleList[id:lower()] ~= nil
     end
 }
 
