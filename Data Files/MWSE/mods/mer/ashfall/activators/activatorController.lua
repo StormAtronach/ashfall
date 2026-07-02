@@ -85,11 +85,8 @@ function ActivatorController.getCurrentType()
     end
 end
 
--- Reverse index: lowercased object id -> activator list-key, memoizing id/pattern matches
--- (the common case) so matching is O(1) instead of scanning every activator (each of which
--- lowercases the id, allocating a string). Pure-`requirements` activators and non-matches are
--- NOT cached (they depend on ref state), so they keep scanning. The id->activator mapping is
--- session-stable, so no invalidation is needed.
+--Reverse index: lowercased object id -> activator list-key, memoizing id-based matches so
+--lookup is O(1). Ref-state-dependent `requirements` activators and non-matches are not cached.
 local activatorIdByObjectId = {}
 
 ---@param reference tes3reference
@@ -100,8 +97,7 @@ local function findActivatorId(reference)
     if cached then return cached end
     for activatorId, activator in pairs(ActivatorController.list) do
         if activator:isActivator(reference) then
-            -- isActivator self-promotes pattern hits into activator.ids; cache only id-based
-            -- matches (stable), not ref-state-dependent `requirements` matches.
+            --isActivator self-promotes pattern hits into activator.ids; cache only id-based matches.
             if activator.ids and activator.ids[objId] then
                 activatorIdByObjectId[objId] = activatorId
             end

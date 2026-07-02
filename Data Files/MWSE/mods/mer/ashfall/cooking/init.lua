@@ -30,12 +30,8 @@ local function resetCookingTime(ingredRef)
     end
 end
 
--- True if this food carries cook progress that must survive a cell unload / re-activation.
--- referenceActivated fires both on a fresh placement AND when the cell reloads, so this is
--- how we tell "player just put food on the grill" (no progress -> announce + start) from
--- "we walked back into the cell" (has progress -> resume silently, never reset). Checks
--- cookedAmount/grillState too, not just lastCookUpdated, since the timer can be cleared on
--- the way out while the progress persists.
+--True if this food carries cook progress that must survive a cell unload / re-activation.
+--Distinguishes a fresh placement (no progress) from a cell re-entry (has progress).
 local function hasCookProgress(ingredRef)
     return ingredRef.supportsLuaData and ingredRef.data ~= nil and (
         ingredRef.data.lastCookUpdated ~= nil
@@ -168,12 +164,8 @@ local function startCookingIngredient(ingredient, timestamp)
     timestamp = timestamp or tes3.getSimulationTimestamp()
     ingredient.data.lastCookUpdated = timestamp
 
-    -- Callers only reach here on a genuine fresh placement (they gate on
-    -- lastCookUpdated == nil), so always announce. Re-entering a cell with food already
-    -- cooking is handled by applyCatchUpCooking and stays silent.
-    -- (Previously this computed `difference` AFTER overwriting lastCookUpdated above, so it
-    -- was always 0, `justChangedCell` was always false, and the message fired every time --
-    -- including on every cell re-entry. That was the spurious "begins to cook" popup.)
+    --Callers only reach here on a fresh placement, so always announce. Cell re-entry is
+    --handled silently by applyCatchUpCooking.
     local message = string.format("%s begins to cook.", ingredient.object.name)
     tes3.messageBox{ message = message }
     tes3.playSound{ sound = "potion fail", pitch = 0.8, reference = ingredient }
@@ -201,12 +193,11 @@ local function updateGrillFoodHeatSource(ingredReference)
             logger:debug("Setting grill food heat source to %s", campfire)
             ingredReference.tempData.ashfallHeatSource = campfire
             if hasCookProgress(ingredReference) then
-                --The heat source link was lost and is now back -- e.g. the cell unloaded
-                --while we were away and cleared tempData. The food was already cooking, so
-                --resume/catch up silently instead of "restarting" it.
+                --Heat-source link was lost and restored (cell unloaded while away). Already
+                --cooking, so resume/catch up silently.
                 applyCatchUpCooking(ingredReference, campfire)
             else
-                --Genuinely fresh placement: announce and start the cook timer.
+                --Fresh placement: announce and start the cook timer.
                 startCookingIngredient(ingredReference)
             end
         end
@@ -289,35 +280,22 @@ local function grillFoodItem(ingredReference)
 end
 
 --[[
-    Cook food for the time that elapsed while its cell was unloaded (e.g. you left to
-    another cell and came back). lastCookUpdated/cookedAmount persist in ref.data, but the
-    survival stack can't process an unloaded cell, so the gap has to be reconciled on return.
-
-    The campfire's fuel is decayed FIRST (synchronously, via the fuelConsumer controller) so
-    that a fire which ran out while we were away doesn't cook anything. If it's still lit
-    afterwards then -- because fuel only decreases while lit -- it was lit for the whole gap,
-    so grillFoodItem can integrate the entire elapsed time in one step.
-
-    Known simplifications (accepted): the catch-up cooks at the fire's post-decay heat, and a
-    fire that died partway through the gap credits none of it (rather than the portion before
-    it went out). Food left unattended on a still-lit (e.g. static) fire can therefore burn.
+    Cook food for the time elapsed while its cell was unloaded. Fuel is decayed first so a
+    fire that ran out while away cooks nothing; if still lit it was lit the whole gap.
+    Known simplification: food on a still-lit fire can burn.
 ]]
 applyCatchUpCooking = function(ingredReference, campfire)
     --Synchronous: campfire.data.isLit reflects the decayed fuel once this returns.
     event.trigger("Ashfall:ForceUpdateFuelConsumer", { reference = campfire })
     if not campfire.data.isLit then
-        --Fire went out while we were away; drop the heat-source link and the stale cook
-        --timer so a relight starts cooking cleanly (cookedAmount so far is preserved).
+        --Fire went out; drop the heat-source link and stale timer (cookedAmount preserved).
         ingredReference.tempData.ashfallHeatSource = nil
         resetCookingTime(ingredReference)
     elseif ingredReference.data.lastCookUpdated == nil then
-        --Has progress but no timestamp to integrate from (it was cleared on the way out).
-        --Resume silently from the saved cookedAmount -- don't route through grillFoodItem's
-        --"lastCookUpdated == nil -> startCookingIngredient" path, which would re-announce.
+        --Has progress but no timestamp; resume silently from saved cookedAmount.
         ingredReference.data.lastCookUpdated = tes3.getSimulationTimestamp()
     else
-        --Fire survived the whole gap (fuel only drops while lit), so integrate the elapsed
-        --cook time in one step.
+        --Fire survived the whole gap; integrate the elapsed cook time in one step.
         grillFoodItem(ingredReference)
     end
 end
@@ -345,10 +323,8 @@ local grillFoodProcessor = StaggeredRefProcessor.new{
     callback = function(ref)
         grillFoodItem(ref)
     end,
-    -- Cooking is delta-integrated (cookedAmount += difference * multipliers), so
-    -- frequency doesn't change the result. 0.01 fired every frame (~100Hz) and the
-    -- set drained nearly every tick, spinning fillProcessor -> iterateReferences in a
-    -- tight loop. Matches the sibling heatSourceProcessor at 0.1. (See HANDOVER step 3c.)
+    --Cooking is delta-integrated, so interval doesn't affect the result. Matches the
+    --sibling heatSourceProcessor at 0.1 to avoid per-frame processor churn.
     interval = 0.1,
     refsPerFrame = 5,
     onEmpty = fillProcessor,
@@ -421,10 +397,8 @@ local function doPlaced(ingredReference)
         --     end
         -- end
     elseif foodConfig.getGrillValues(ingredReference.object) then
-        --referenceActivated also fires when the cell reloads, so only treat this as a fresh
-        --placement (reset the timer, allow the "begins to cook" announce) when the food has
-        --no existing cook progress. Otherwise it's a re-activation -- leave the data intact
-        --and let updateGrillFoodHeatSource resume/catch up silently.
+        --referenceActivated also fires on cell reload, so only treat this as a fresh
+        --placement when there's no existing cook progress; otherwise resume silently.
         if ingredReference.supportsLuaData and not hasCookProgress(ingredReference) then
             --Reset grill time for meat and veges
             ingredReference.data.preventBurning = nil

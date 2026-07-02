@@ -350,7 +350,17 @@ end
 
 ---@param reference tes3reference
 function HarvestService.getRefHeight(reference)
-    return (reference.object.boundingBox.max.z - reference.object.boundingBox.min.z) * reference.scale
+    --object.boundingBox is unset on many flora records, so fall back to the
+    --scene node's bounds. Without this, getRefHeight throws on those plants,
+    --aborting disableExhaustedHarvestable before the destruction limit is set
+    --and leaving the harvestable able to be harvested forever.
+    local boundingBox = reference.object.boundingBox
+        or (reference.sceneNode and reference.sceneNode:createBoundingBox())
+    if not boundingBox then
+        logger:warn("No bounding box for %s, using fallback height", reference)
+        return 100
+    end
+    return (boundingBox.max.z - boundingBox.min.z) * reference.scale
 end
 
 ---@param reference tes3reference

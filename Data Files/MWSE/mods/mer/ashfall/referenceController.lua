@@ -5,7 +5,7 @@ local this = {}
 ---@class Ashfall.ReferenceController
 ---@field references table<tes3reference, true>
 ---@field requirements fun(self: Ashfall.ReferenceController, ref: tes3reference): any
----@field requirementsAreStatic boolean? When true, iteration skips the per-ref requirements() re-check and uses ref:isValid() instead (membership is invariant per ref).
+---@field requirementsAreStatic boolean? When true, iteration uses ref:isValid() instead of re-checking requirements().
 local ReferenceController = {
     new = function(self, o)
         o = o or {}   -- create object if user does not provide one
@@ -30,11 +30,8 @@ local ReferenceController = {
     iterate = function(self, callback)
         local static = self.requirementsAreStatic
         for ref in pairs(self.references) do
-            --For a static controller a ref's membership can never change, so skip the
-            --(potentially expensive, e.g. getObjectByName/isActivator) requirements()
-            --re-check and just confirm the ref still points to live memory.
-            --objectInvalidated already prunes deleted refs; ref:isValid() is the cheap
-            --crash-safe backstop. Dynamic controllers re-run requirements() as before.
+            --Static controllers skip the requirements() re-check and just confirm the ref
+            --still points to live memory; dynamic controllers re-run requirements().
             local valid
             if static then
                 valid = ref:isValid()
@@ -193,8 +190,7 @@ function this.iterateReferences(refType, callback)
     local references = controller.references --[[@as table<tes3reference, true>]]
     local static = controller.requirementsAreStatic
     for ref in pairs(references) do
-        --Static controllers skip the requirements() re-check and use the cheap
-        --ref:isValid() liveness guard (see ReferenceController.requirementsAreStatic).
+        --Static controllers skip the requirements() re-check and use ref:isValid().
         local valid
         if static then
             valid = ref:isValid()

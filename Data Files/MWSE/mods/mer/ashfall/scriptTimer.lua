@@ -43,12 +43,8 @@ local function getTimerInterval(hoursPassed)
     return interval
 end
 
--- The survival tick runs at TICK_DURATION (~10Hz). The heavy world-reference scans
--- (fireEffect/hazardEffects iterate the fuelConsumer/flame/heatSource controllers with
--- per-ref distance tests; frostBreath iterates every active-cell actor) only sample the
--- *current* heat / refresh cosmetic breath, so they run on their own slower timer
--- (HEAVY_SCAN_INTERVAL) rather than every tick. Temperature still integrates every tick
--- from the last sampled fireTemp/hazardTemp.
+--Heavy world-reference scans (fireEffect/hazardEffects/frostBreath) only sample current
+--state, so they run on their own slower HEAVY_SCAN_INTERVAL rather than every tick.
 local TICK_DURATION = 0.1
 local HEAVY_SCAN_INTERVAL = 0.5
 
@@ -57,10 +53,10 @@ local function callUpdates()
     if not tes3.player then return end
 
     statsEffect.calculate()
-    -- --temp effects
+    --temp effects
     raceEffects.calculateRaceEffects()
     torch.calculateTorchTemp()
-    conditions.updateConditions() --1fps
+    conditions.updateConditions()
 
     local hoursPassed = getHoursPassed()
     local interval = getInterval(hoursPassed)
@@ -70,28 +66,22 @@ local function callUpdates()
         script.calculate(interval)
     end
     event.trigger("Ashfall:UpdateNeedsUI")
-    -- Don't fire Ashfall:UpdateHUD here: temperatureController.calculate (next line) fires it
-    -- itself, post-temp-update. Firing it here too caused a redundant ~2x/tick HUD relayout,
-    -- and the pre-update fire showed last tick's temperature.
+    --Don't fire Ashfall:UpdateHUD here: temperatureController.calculate fires it itself
+    --post-temp-update, so firing here would be redundant and show last tick's temperature.
     temperatureController.calculate(interval)
 end
 
--- Heavy world-reference scans, run on their own slower clock (see HEAVY_SCAN_INTERVAL).
--- Decoupled from callUpdates: these only write fireTemp/hazardTemp/cosmetic breath, which
--- the tick samples — there's no per-tick ordering dependency.
+--Heavy world-reference scans, run on their own slower HEAVY_SCAN_INTERVAL clock. Decoupled
+--from callUpdates: they only write state the tick samples, with no ordering dependency.
 local function doHeavyScans()
     if not tes3.player then return end
     fireEffect.calculateFireEffect()
     hazardEffects.calculateHazards()
     frostBreath.doFrostBreath()
 end
--- The survival stack used to run on `enterFrame` (~60Hz, and even while paused
--- in menus). It's now driven by a simulate timer (~10Hz, paused in menus). The
--- needs/temperature math is interval-driven by game hours, so a lower tick rate
--- accumulates identically; the non-interval temp effects (fire/torch/etc.) only
--- recompute the current state, which can't change while the game is paused.
--- Timers are cancelled right before each `loaded`, so re-starting here on every
--- load does not stack.
+--Driven by a simulate timer (pauses in menus). Needs/temperature math is interval-driven
+--by game hours so the tick rate doesn't affect accumulation; non-interval temp effects only
+--recompute current state, which can't change while paused.
 event.register("loaded", function()
     timer.start{
         type = timer.simulate,
@@ -110,15 +100,35 @@ event.register("loaded", function()
     }
 end)
 
--- The simulate timer doesn't tick during a vanilla rest/wait (menu mode), so the
--- needs that would have accumulated over those hours are applied once at the rest
--- boundary via the Ashfall:RestFinished event (see the needs controllers). Without
--- this, the first tick after the rest would see the whole rest as a single interval
--- and double-apply those needs at the normal rate. Re-baseline the interval clock so
--- that catch-up tick is a no-op. (The real timer keeps ticking through the rest, so
--- lastTimeTimerScriptsUpdated is left untouched.)
-event.register("Ashfall:RestFinished", function()
-    common.data.lastTimeScriptsUpdated = getHoursPassed()
+--[[
+    Both simulate timers above pause during a vanilla rest/wait, which would otherwise
+    freeze needs/temperature for the whole rest. enterFrame keeps firing in menu mode, so
+    for the duration of a rest we drive the full stack there instead. Interval is still
+    game-hours based, so accumulation matches normal play; fps doesn't matter in the menu.
+    Heavy scans run first so fireTemp etc. are fresh before the temperature recompute.
+]]
+local function restMenuUpdate()
+    if not tes3.player then return end
+    if not (common.helper.getIsSleeping() or common.helper.getIsWaiting()) then
+        --Rest/wait ended: stop driving on enterFrame; the simulate timers take over again.
+        event.unregister("enterFrame", restMenuUpdate)
+        return
+    end
+    doHeavyScans()
+    callUpdates()
+end
+
+--Start driving the moment a rest/wait begins (the player is already flagged sleeping/
+--waiting at this point, so restMenuUpdate won't immediately tear itself down).
+event.register("calcRestInterrupt", function()
+    if not event.isRegistered("enterFrame", restMenuUpdate) then
+        event.register("enterFrame", restMenuUpdate)
+    end
+end)
+
+--Backstop teardown when the rest menu closes (no-op if already unregistered).
+event.register("menuExit", function()
+    event.unregister("enterFrame", restMenuUpdate)
 end)
 
 event.register("loaded", function()

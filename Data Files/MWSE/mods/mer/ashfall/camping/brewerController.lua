@@ -1,6 +1,4 @@
---[[
-    Iterates over objects that  and updates their fuel level
-]]
+--Brews tea in kettle references whose water is boiling.
 local common = require ("mer.ashfall.common.common")
 local logger = common.createLogger("brewerController")
 local teaConfig = common.staticConfigs.teaConfig
@@ -58,7 +56,6 @@ local function updateBuffs(e)
     end
 
 end
--- updateBuffs runs together with updateBrewers on a slower timer (see bottom of file).
 
 ---@class Ashfall.onDrinkTea.params
 ---@field teaType string
@@ -169,10 +166,8 @@ local function updateBrewers(e)
     ReferenceController.iterateReferences("brewer", doUpdate)
 end
 
--- Tea brewing and tea-buff countdown are delta-integrated (by game-hours since their last
--- update), so they don't need the per-frame `simulate` event. Run them on a slower timer
--- matching the sibling boiler/fuel cadence (~0.25s). Still a simulate-type timer, so it
--- pauses in menus exactly like the old `simulate` registrations did.
+--Brewing and tea-buff countdown are delta-integrated, so update frequency only affects latency.
+--Run on a slower simulate-type timer (pauses in menus) matching the sibling boiler/fuel cadence.
 event.register("loaded", function()
     timer.start{
         type = timer.simulate,

@@ -113,9 +113,8 @@ end
 
 
 --[[
-checkWerewolfKill(e)
-    callback for the damaged event. feeds the player if they land the killing blow against an NPC in werewolf form.
-    excludes creatures to fit with the in game theming, your bloodlust is only sated by humanoid blood
+    Feeds the player on landing a killing blow against an NPC while in werewolf form.
+    Creatures are excluded: bloodlust is only sated by humanoid blood.
 ]]--
 local werewolfKillNutrition = 15
 ---@param e damagedEventData
@@ -173,12 +172,9 @@ function this.update()
 end
 
 --[[
-    The survival stack no longer ticks during a menu-mode vanilla rest/wait, so the
-    hunger that would have accumulated over those hours is applied once here from the
-    measured delta. Mirrors calculate()'s sleeping/normal branches: resting uses the
-    restingNeedsMultiplier, waiting uses the base rate. The value is capped at
-    "starving" so a long rest can't push the player past it (replacing the old
-    per-frame mid-rest wake-and-cap in sleepController).
+    Apply the rest/wait hunger once from the elapsed hours. Resting uses
+    restingNeedsMultiplier, waiting the base rate. Capped at "starving" so a long
+    rest can't overshoot.
 ]]
 local function applyRestHunger(hours, isResting)
     if hours <= 0 then return end

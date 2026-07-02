@@ -51,8 +51,7 @@ end
 
 ReferenceController.registerReferenceController{
     id = "heatSource",
-    -- isActivator/isLight classification is invariant per ref; the dynamic `disabled`
-    -- check is re-done inside doOtherHeat, so iteration only needs the isValid() guard.
+    --Classification is invariant per ref; the dynamic `disabled` check is re-done in doOtherHeat.
     requirementsAreStatic = true,
     requirements = function(_, ref)
         if ref.disabled then return false end

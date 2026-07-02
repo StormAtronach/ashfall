@@ -1,6 +1,4 @@
---[[
-    Iterates over objects that  and updates their fuel level
-]]
+--Cooks stew in cooking-pot references whose water is boiling.
 local common = require ("mer.ashfall.common.common")
 local config = require("mer.ashfall.config").config
 local logger = common.createLogger("stewerController")
@@ -106,10 +104,8 @@ local function updateStewers(e)
     ReferenceController.iterateReferences("stewer", doUpdate)
 end
 
--- Stew cooking and stew-buff countdown are delta-integrated (by game-hours since their
--- last update), so they don't need the per-frame `simulate` event. Run them on a slower
--- timer matching the sibling boiler/fuel cadence (~0.25s). Still a simulate-type timer, so
--- it pauses in menus exactly like the old `simulate` registration did.
+--Cooking and stew-buff countdown are delta-integrated, so update frequency only affects latency.
+--Run on a slower simulate-type timer (pauses in menus) matching the sibling boiler/fuel cadence.
 event.register("loaded", function()
     timer.start{
         type = timer.simulate,
@@ -138,9 +134,8 @@ local function eatStew(e)
     for foodType, data in pairs(stewBuffs) do
         local nutrition = foodConfig.getNutritionForFoodType(foodType) * data.stewNutrition
         nutritionLevel = nutritionLevel + ( nutrition * ( e.data.stewLevels[foodType] or 0 ) / 100 )
-        -- NOTE: intentionally matches upstream. Rewriting this to `maxNutritionLevel + nutrition`
-        -- changes foodRatio and thus how much a stew satiates -- a balance change, not a safe
-        -- correctness fix -- so it's left exactly as the shipped mod has it.
+        --Intentionally matches upstream: changing this to `maxNutritionLevel + nutrition`
+        --alters foodRatio and stew satiation (a balance change, not a correctness fix).
         maxNutritionLevel = nutritionLevel + nutrition
     end
     local foodRatio = nutritionLevel / maxNutritionLevel

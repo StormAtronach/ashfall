@@ -67,12 +67,9 @@ function this.update()
 end
 
 --[[
-    The survival stack no longer ticks during a menu-mode vanilla rest/wait, so the
-    thirst that would have accumulated over those hours is applied once here from the
-    measured delta. Mirrors calculate()'s sleeping/normal branches: resting uses the
-    restingNeedsMultiplier, waiting uses the base rate. The value is capped at
-    "dehydrated" so a long rest can't push the player past it (replacing the old
-    per-frame mid-rest wake-and-cap in sleepController).
+    Apply the rest/wait thirst once from the elapsed hours. Resting uses
+    restingNeedsMultiplier, waiting the base rate. Capped at "dehydrated" so a long
+    rest can't overshoot.
 ]]
 local function applyRestThirst(hours, isResting)
     if hours <= 0 then return end
