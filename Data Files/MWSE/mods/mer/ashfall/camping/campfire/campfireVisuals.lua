@@ -308,7 +308,12 @@ local function updateSounds(campfire)
     local hasWater = campfire.data.waterAmount and campfire.data.waterAmount > 0
     local hasBoilingHeat = campfire.data.waterHeat and campfire.data.waterHeat >= common.staticConfigs.hotWaterHeatValue
     local utensilOrCampfire = campfire.data.utensil or common.staticConfigs.utensils[campfire.object.id:lower()]
-    if hasWater and hasBoilingHeat and utensilOrCampfire then
+    --Boil loop is only audible in the player's cell. cellChanged/referenceActivated
+    --re-run updateAttachNodes for all attach-node refs, so the loop starts and stops
+    --as the player enters/leaves the cell (same-cell rule as the "Fire" loop in
+    --campfireLighting's initialiseCampfireSoundAndFlame).
+    local playerInCell = tes3.player and campfire.cell == tes3.player.cell
+    if hasWater and hasBoilingHeat and utensilOrCampfire and playerInCell then
         tes3.removeSound{
             reference = campfire,
             sound = "ashfall_boil"

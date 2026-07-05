@@ -222,12 +222,6 @@ function this.calculate(scriptInterval, forceUpdate)
     end
 end
 
---Sickness math doesn't depend on resting state, so apply calculate() once with the
---elapsed rest hours (illness drain/recovery, blight, flu).
-event.register("Ashfall:RestFinished", function(e)
-    this.calculate(e.hours)
-end)
-
 --[[
     Check whether the player's face is covered to protect against the blight
 ]]

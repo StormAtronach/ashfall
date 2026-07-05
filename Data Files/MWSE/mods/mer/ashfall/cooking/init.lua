@@ -114,12 +114,25 @@ local function checkIfBurned(burnChanceMultiplier)
 end
 
 
+--Cooking continues while the player is elsewhere, but the sizzle/cook/burn sounds are
+--positional: don't play them unless the player is in the same cell as the food. Also
+--skipped during silent catch-ups (showMessage == false).
+---@param ingredReference tes3reference
+---@param pitch number
+local function playCookSound(ingredReference, pitch)
+    if ingredReference.cell == tes3.player.cell then
+        tes3.playSound{ sound = "potion fail", pitch = pitch, reference = ingredReference }
+    end
+end
+
 ---@param ingredReference tes3reference # The ingredient reference to cook
 ---@param showMessage boolean #Whether to show the "is fully cooked" message
 local function doCook(ingredReference, showMessage)
     ingredReference.data.grillState = "cooked"
     ingredReference.data.cookedAmount = 100
-    tes3.playSound{ sound = "potion fail", pitch = 0.7, reference = ingredReference }
+    if showMessage then
+        playCookSound(ingredReference, 0.7)
+    end
     common.skills.survival:exercise(skillsConfig.survival.grill.skillGain)
     event.trigger("Ashfall:ingredCooked", { reference = ingredReference})
     if showMessage then
@@ -132,7 +145,9 @@ end
 local function doBurn(ingredReference, showMessage)
     ingredReference.data.grillState = "burnt"
     ingredReference.data.cookedAmount = 100
-    tes3.playSound{ sound = "potion fail", pitch = 0.9, reference = ingredReference }
+    if showMessage then
+        playCookSound(ingredReference, 0.9)
+    end
     event.trigger("Ashfall:ingredCooked", { reference = ingredReference})
     if showMessage then
         tes3.messageBox("%s has become burnt.", ingredReference.object.name)
@@ -143,7 +158,8 @@ end
 ---@param e { reference: tes3reference, burnChanceMultiplier: number, showMessage: boolean }
 local function attemptCook(e)
     local burnChanceMultiplier = e.burnChanceMultiplier or 1
-    local showMessage = e.showMessage or true
+    --default true; `e.showMessage or true` could never be false
+    local showMessage = e.showMessage ~= false
     if checkIfBurned(burnChanceMultiplier) then
         doBurn(e.reference, showMessage)
     else
@@ -168,7 +184,7 @@ local function startCookingIngredient(ingredient, timestamp)
     --handled silently by applyCatchUpCooking.
     local message = string.format("%s begins to cook.", ingredient.object.name)
     tes3.messageBox{ message = message }
-    tes3.playSound{ sound = "potion fail", pitch = 0.8, reference = ingredient }
+    playCookSound(ingredient, 0.8)
 end
 
 -- Forward declaration; defined after grillFoodItem (which it calls).

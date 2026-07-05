@@ -88,7 +88,9 @@ event.register("loaded", loaded)
 -- Extinguish the campfire
 local function extinguish(e)
     local campfire = e.fuelConsumer
-    local playSound = e.playSound ~= nil and e.playSound or true
+    --default true; the old `and/or` chain could never evaluate to false, so the
+    --playSound = false passed by remote burn-out catch-ups was ignored
+    local playSound = e.playSound ~= false
 
     tes3.removeSound{ reference = campfire, sound = "Fire" }
 

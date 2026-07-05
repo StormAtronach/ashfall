@@ -159,71 +159,6 @@ end
 event.register("uiActivated", activateRestMenu, { filter = "MenuRestWait" })
 
 
---[[
-    Per-rest tiredness model for the VANILLA wait/rest mechanic (kept separate from
-    the Ashfall cushion mechanic, which is handled in calculate()).
-    calcRestInterrupt fires once when a rest/wait starts -> capture absolute game-hours.
-    menuExit is the discrete end-of-rest signal -> the elapsed-hours delta is the real
-    time slept (partial if the rest was interrupted). Recovery is applied once from
-    that delta instead of accumulating every frame.
-]]
-local function getHoursPassedAbs()
-    local wc = tes3.worldController
-    return (wc.daysPassed.value * 24) + wc.hour.value
-end
-local restPending = false
-local restStartHours, restWasResting
-local function onRestStart(e)
-    restPending = true
-    restStartHours = getHoursPassedAbs()
-    restWasResting = e.resting
-end
-event.register("calcRestInterrupt", onRestStart)
-
--- Apply the vanilla rest/wait tiredness change ONCE, from the actual hours elapsed.
--- rate*hours is equivalent to the old per-frame rate*scriptInterval accumulation.
-local function applyRestTiredness(hours, isResting)
-    if hours <= 0 then return end
-    if not tiredness:isActive() then return end
-    if common.data.blockNeeds or common.data.blockSleepLoss then return end
-
-    local currentTiredness   = tiredness:getValue()
-    local hackloEffect       = common.data.hackloTeaEffect or 1      --slows drain
-    local tramaRootTeaEffect = common.data.tramaRootTeaEffect or 1   --speeds recovery
-
-    if isResting then
-        if isUsingBed then  --bed/bedroll: faster recovery
-            currentTiredness = currentTiredness - ( hours * (config.gainSleepBed / 10) * tramaRootTeaEffect )
-        else                --ground/indoors: slower, can't drop below "Rested"
-            local newTiredness = currentTiredness - ( hours * (config.gainSleepRate / 10) * tramaRootTeaEffect )
-            if newTiredness > tiredness.states.rested.min then
-                currentTiredness = newTiredness
-            end
-        end
-    else                    --waiting: lose sleep
-        currentTiredness = currentTiredness + ( hours * (config.loseSleepWaiting / 10) * hackloEffect )
-    end
-
-    if tes3.mobilePlayer.werewolf then
-        currentTiredness = currentTiredness * werewolfSleepMulti
-    end
-    tiredness:setValue(math.clamp(currentTiredness, 0, 100))
-end
-
---Apply tiredness for the completed vanilla rest/wait, using the measured delta, then
---let the other needs (hunger/thirst/sickness) apply their own share of the elapsed
---hours. The survival stack no longer ticks during the menu-mode rest, so this event
---is the single point where the rest's hours are accounted for.
-local function onRestFinished()
-    if not restPending then return end
-    restPending = false
-    local delta = getHoursPassedAbs() - restStartHours
-    applyRestTiredness(delta, restWasResting)
-    event.trigger("Ashfall:RestFinished", { hours = delta, isResting = restWasResting })
-end
-event.register("menuExit", onRestFinished)
-
-
 --Wake up if sleeping and ENVIRONMENT is too cold/hot
 local function wakeUp()
     tes3.wakeUp()
@@ -313,6 +248,7 @@ function this.calculate(scriptInterval, forceUpdate)
 
     local currentTiredness = tiredness:getValue()
     local loseSleepRate = config.loseSleepRate / 10
+    local loseSleepWaiting = config.loseSleepWaiting / 10
     local gainSleepRate = config.gainSleepRate / 10
     local gainSleepBed = config.gainSleepBed / 10
 
@@ -329,10 +265,11 @@ function this.calculate(scriptInterval, forceUpdate)
         end
     end
 
-    --Vanilla rest/wait is now applied per-rest (calcRestInterrupt + menuExit).
-    --calculate() handles ONLY the Ashfall cushion mechanic, traveling, and normal time.
-    if common.data.isSleeping then
-        logger:trace("Cushion lay-down")
+    --Sleeping covers both the vanilla rest menu and the Ashfall lay-down mechanic.
+    --Needs accumulate per-frame during a rest (driven by scriptTimer's enterFrame
+    --handler), so checkInterruptSleep can wake the player mid-rest.
+    if common.helper.getIsSleeping() then
+        logger:trace("Sleeping")
         local usingBed = common.data.usingBed or common.data.isSleeping or false
         if usingBed then
             currentTiredness = currentTiredness - ( scriptInterval * gainSleepBed * tramaRootTeaEffect )
@@ -343,6 +280,9 @@ function this.calculate(scriptInterval, forceUpdate)
                 currentTiredness = newTiredness
             end
         end
+    --Waiting: lose sleep faster than normal time
+    elseif common.helper.getIsWaiting() then
+        currentTiredness = currentTiredness + ( scriptInterval * loseSleepWaiting * hackloEffect )
     --TODO: traveling isn't working for some reason
     elseif common.data.playerIsTraveling  then
         logger:trace("Player is traveling, getting some rest but can't get below 'Rested'")
